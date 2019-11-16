@@ -12,8 +12,6 @@ module Quiver (
     , getAllPaths
     , hasCycles
     , longComp
-    ,filterDeltaEmptyPaths
-    ,emptyPath
     ) where
     
     -- Begin Exported
@@ -165,7 +163,7 @@ module Quiver (
         getWords n q = mapM (const $ arrows q) [1..n]
 
         -- Generalizes composition of two arrows to a finite list of arrows
-        longComp :: [Arrow]->Path
+        longComp :: (Comp a) => [a]->Path
         longComp [] = emptyPath
         longComp [x] = toPath x
         longComp (x:xs) = x#longComp xs
