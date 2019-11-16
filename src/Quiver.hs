@@ -1,5 +1,3 @@
-{-# LANGUAGE FlexibleInstances, TypeFamilies #-}
-
 module Quiver (
     Quiver (..)
     , Vertex(..)
@@ -60,7 +58,7 @@ module Quiver (
 
         -- Gets all the paths in a finite quiver
         getAllPaths :: Quiver -> [Path]
-        getAllPaths = filterEmptyPaths.getAllPathsUnfiltered
+        getAllPaths q = [ stationaryPath v | v <- vertices q] ++ (filterEmptyPaths.getAllPathsUnfiltered) q
 
         -- Checks if a quiver has cycles
         -- This works because in a set with "n" symbols, the maximal word with distinc symbols has precisely all the symbols
@@ -78,6 +76,7 @@ module Quiver (
             source :: a -> Vertex
             target :: a -> Vertex
             toPath :: a -> Path
+            pathLength :: a -> Int
 
         -- Redefining the show for each type
         -- Can be easily rewritten to show different things
@@ -118,23 +117,27 @@ module Quiver (
         instance Comp Path where
             source = source . head . pathArrows
             target = target . last . pathArrows
-            toPath = id        
+            toPath = id
+            pathLength = length . pathArrows  
 
         instance Comp Vertex where
             source = id
             target = id
             toPath = stationaryPath
+            pathLength = const 0
 
         instance Comp Arrow where
             source = arrowSource
             target = arrowTarget
             toPath = arrowPath
+            pathLength = const 1
 
         -- Now we define pairs of composable types as also being composable
         instance (Comp a, Comp b) => Comp (a,b) where
             source (a,b) = source a
             target (a,b) = target b
-            toPath (a,b) = (toPath a)<+>(toPath b)    
+            toPath (a,b) = (toPath a)<+>(toPath b)
+            pathLength (a,b) = pathLength a + pathLength b
 
         -- Basic path composition
         (<+>) :: Path->Path->Path

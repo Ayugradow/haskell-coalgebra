@@ -5,17 +5,9 @@ import Quiver
 
 main :: IO ()
 main = do
-    let [v1,v2,v3,v4] = [Vertex "1", Vertex "2", Vertex "3", Vertex "4"]
-    let [a1,a2,a3] = [Arrow "a" v1 v2, Arrow "b" v2 v3, Arrow "c" v3 v4]
-    let a4 = Arrow "d" v1 v1
-    let q = Quiver "Q" [v1,v2] [a1]
-    let q1 = Quiver "Q1" [v1,v2,v3,v4] [a1,a2,a3]
-    let q2 = Quiver "Q2" [v1] [a4]
-    print (getAllPaths q)
-    print (getAllPaths q1)
-    print (getAllPaths q2)
-    print ((%) (Path "p" [a1,a2,a3]))
-    print ((%) (Path "p1" [a1]))
-    print ((%) (Path "p2" [a4]))
-    print ((%) (stationaryPath v1))
-    print ((%) (arrowPath a1))
+    let [v1,v2,v3,v4,v5] = [Vertex "1", Vertex "2", Vertex "3", Vertex "4", Vertex "5"]
+    let [a1,a2,a3,a4,a5] = [Arrow "a" v1 v2, Arrow "b" v2 v4, Arrow "c" v1 v3, Arrow "d" v3 v4, Arrow "e" v3 v5]
+    let q = Quiver "Q" [v1,v2,v3,v4,v5] [a1,a2,a3,a4,a5]
+    let paths = getAllPaths q
+    print paths
+    print [pathLength p | p <- paths]
