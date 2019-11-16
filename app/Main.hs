@@ -17,3 +17,5 @@ main = do
     print ((%) (Path "p" [a1,a2,a3]))
     print ((%) (Path "p1" [a1]))
     print ((%) (Path "p2" [a4]))
+    print ((%) (stationaryPath v1))
+    print ((%) (arrowPath a1))
