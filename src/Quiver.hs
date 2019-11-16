@@ -1,16 +1,19 @@
 {-# LANGUAGE FlexibleInstances, TypeFamilies #-}
 
 module Quiver (
-    Quiver (..),
-    Vertex(..),
-    Arrow(..),
-    Path(..),
-    Comp(..),
-    (#),
-    (%),
-    maxPathLength,
-    getAllPaths,
-    hasCycles
+    Quiver (..)
+    , Vertex(..)
+    , Arrow(..)
+    , Path(..)
+    , Comp(..)
+    , (#)
+    , (%)
+    , maxPathLength
+    , getAllPaths
+    , hasCycles
+    , longComp
+    ,filterDeltaEmptyPaths
+    ,emptyPath
     ) where
     
     -- Begin Exported
@@ -47,7 +50,7 @@ module Quiver (
         -- The inverse operation to composing
         -- Breaks a path into all its possible subpaths
         (%) :: Path -> [(Path,Path)]
-        (%) p = map (mapPair longComp longComp) (splitPath p)
+        (%) = map filterDeltaEmptyPaths . map (mapPair longComp longComp) . splitPath
 
         -- Gets the maximum size of a path in a quiver
         maxPathLength :: Quiver -> Int
@@ -63,7 +66,7 @@ module Quiver (
         -- So if a path has more than maxPathLegth arrows, we know it's a cycle
         hasCycles :: Quiver -> Bool
         hasCycles (Quiver n vs []) = False
-        hasCycles q = filterEmptyPaths(getPaths(getWords q ((maxPathLength q)+1))) /= []
+        hasCycles q = filterEmptyPaths(getPaths(getWords ((maxPathLength q)+1) q)) /= []
 
     -- End Exported
 
@@ -130,7 +133,7 @@ module Quiver (
 
         -- Basic path composition
         (<+>) :: Path->Path->Path
-        x<+>y
+        x<+>y   | or [x == emptyPath, y == emptyPath] = emptyPath
                 | target x == source y = Path {pathName = (pathName x ++ pathName y), pathArrows = (pathArrows x ++ pathArrows y)}
                 | otherwise = emptyPath    
 
@@ -149,11 +152,17 @@ module Quiver (
         successiveMap :: (Int->a->b)->Int->a->[b]
         successiveMap f (-1) x = []
         successiveMap f m x = (map (const(f m x)) [1]) ++ (successiveMap f (m-1) x)
+
+        -- Same as above, but now taking a function whose input is a list and concatenating the outputs instead of making a
+        -- list of lists
+        successiveListMap :: (Int->a->[b])->Int->a->[b]
+        successiveListMap f (-1) x = []
+        successiveListMap f m x = (successiveListMap f (m-1) x) ++ f m x
         
         -- Gets all the possible words of arrows in the quiver with a given number of letters
-        getWords :: Quiver -> Int -> [[Arrow]]
-        getWords (Quiver n vs []) _ = []
-        getWords q n  = mapM (const $ arrows q) [1..n]
+        getWords :: Int -> Quiver -> [[Arrow]]
+        getWords _ (Quiver n vs []) = []
+        getWords n q = mapM (const $ arrows q) [1..n]
 
         -- Generalizes composition of two arrows to a finite list of arrows
         longComp :: [Arrow]->Path
@@ -166,12 +175,9 @@ module Quiver (
         getPaths [] = []
         getPaths (x:xs) = [longComp x] ++ getPaths xs
 
-        -- Improvised while loop
-        -- Can probably be made much better
-        while :: Int -> (Int -> Bool) -> (Int -> [a]) -> [a]
-        while start condition f
-            | condition start = f start
-            | otherwise = f start ++ while (start + 1) condition f    
+        -- Basically combines getWords and getPaths into a single function
+        getPathsFromWords :: Int -> Quiver -> [Path]
+        getPathsFromWords n q = getPaths (getWords n q)
 
         -- Basic check for empty
         isEmptyPath :: Path->Bool
@@ -180,12 +186,18 @@ module Quiver (
         -- Runs getPath.getWords for a given quiver looking for paths of all sizes (up to maxPathLength)
         getAllPathsUnfiltered :: Quiver -> [Path]
         getAllPathsUnfiltered (Quiver n vs []) = []
-        getAllPathsUnfiltered q =  while 1 (== maxPathLength q) (getPaths.(getWords q))
+        getAllPathsUnfiltered q =  successiveListMap getPathsFromWords (maxPathLength q) q
 
         -- The list returned by getAllPathsUnfiltired will, most like than not, be filled with "emptyPaths"
         -- This removes them, leaving only a list with proper paths
         filterEmptyPaths :: [Path] -> [Path]
         filterEmptyPaths = filter (/= emptyPath)
+
+        filterDeltaEmptyPaths :: (Path,Path) -> (Path,Path)
+        filterDeltaEmptyPaths (x,y)   | x == emptyPath = (toPath(source y),y)
+                                        | y == emptyPath = (x,toPath(target x))
+                                        | otherwise = (x,y)
+
 
 
         -- Used in Show Arrow
@@ -206,7 +218,7 @@ module Quiver (
 
         -- The "do nothing" path at a vertex that corresponds to "staying at home at the vertex"
         stationaryPath :: Vertex->Path
-        stationaryPath v = Path {pathName = "", pathArrows = []}
+        stationaryPath v = Path {pathName = vertexName v, pathArrows = [Arrow (vertexName v) v v]}
 
         -- The basic paths corresponding to each arrow
         arrowPath :: Arrow -> Path
