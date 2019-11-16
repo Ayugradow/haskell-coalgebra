@@ -180,7 +180,7 @@ module Quiver (
         -- Runs getPath.getWords for a given quiver looking for paths of all sizes (up to maxPathLength)
         getAllPathsUnfiltered :: Quiver -> [Path]
         getAllPathsUnfiltered (Quiver n vs []) = []
-        getAllPathsUnfiltered q =  while 1 (/= maxPathLength q) (getPaths.(getWords q))
+        getAllPathsUnfiltered q =  while 1 (== maxPathLength q) (getPaths.(getWords q))
 
         -- The list returned by getAllPathsUnfiltired will, most like than not, be filled with "emptyPaths"
         -- This removes them, leaving only a list with proper paths
