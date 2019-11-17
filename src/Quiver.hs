@@ -12,6 +12,8 @@ module Quiver (
     , longComp
     , stationaryPath
     , arrowPath
+    , getPairs
+    , newGetAllPaths
     ) where
     
     -- Begin Exported
@@ -187,6 +189,17 @@ module Quiver (
         getPathsFromWords :: Int -> Quiver -> [Path]
         getPathsFromWords n q = getPaths (getWords n q)
 
+        getPairs :: (Comp a, Comp b) => [a] -> [b] -> [Path]
+        getPairs [] _ = []
+        getPairs _ [] = []
+        getPairs as bs = filterEmptyPaths [ a#b | a<-as, b<-bs]
+
+        newGetAllPaths :: (Comp a, Comp b) => [a] -> [b] -> [Path]
+        newGetAllPaths [] _ = []
+        newGetAllPaths _ [] = []
+        newGetAllPaths a b      | all (== emptyPath) (getPairs a b) = map toPath a
+                                | otherwise = (map toPath a) ++ newGetAllPaths (getPairs a b) b
+
         -- Basic check for empty
         isEmptyPath :: Path->Bool
         isEmptyPath = (emptyPath ==)
@@ -194,7 +207,7 @@ module Quiver (
         -- Runs getPath.getWords for a given quiver looking for paths of all sizes (up to maxPathLength)
         getAllPathsUnfiltered :: Quiver -> [Path]
         getAllPathsUnfiltered (Quiver n vs []) = []
-        getAllPathsUnfiltered q =  successiveListMap getPathsFromWords (maxPathLength q) q
+        getAllPathsUnfiltered q =  foldl (++) [] [getPathsFromWords i q | i<-[1..maxPathLength q]]
 
         -- The list returned by getAllPathsUnfiltired will, most like than not, be filled with "emptyPaths"
         -- This removes them, leaving only a list with proper paths
