@@ -8,13 +8,13 @@ module Quiver (
     , (%)
     , emptyPath
     , maxPathLength
-    , getAllPaths
     , hasCycles
     , longComp
     , stationaryPath
     , arrowPath
     , paths
-    , pathsFromVertex
+    , pathsFrom
+    , pathsTo
     ) where
     
     -- Begin Exported
@@ -61,9 +61,9 @@ module Quiver (
         maxPathLength (Quiver n vs []) = 0
         maxPathLength (Quiver _ _ as) = length as
 
-        -- Gets all the paths in a finite quiver
-        getAllPaths :: Quiver -> [Chain]
-        getAllPaths q = [ stationaryPath v | v <- vertices q] ++ (filterEmptyPaths.getAllPathsUnfiltered) q
+        
+        paths :: Quiver -> [Chain]
+        paths q = [ stationaryPath v | v <- vertices q] ++ getAllPaths (arrows q) (arrows q)
 
         -- Checks if a quiver has cycles
         -- This works because in a set with "n" symbols, the maximal word with distinc symbols has precisely all the symbols
@@ -145,13 +145,18 @@ module Quiver (
             path (a,b) = (path a)<+>(path b)
             pathLength (a,b) = pathLength a + pathLength b
 
+        isComposable :: Chain->Chain->Bool
+        isComposable x y = target x == source y
+
+        doComp :: Chain->Chain->Chain
+        doComp x y  | source x == target x = y
+                    | source y == target y = x
+                    | otherwise = Chain (pathName x ++ pathName y) (pathArrows x ++ pathArrows y) (source x) (target y)
+
         -- Basic path composition
         (<+>) :: Chain->Chain->Chain
-        x<+>y   | or [x == emptyPath, y == emptyPath, target x /= source y] = emptyPath
-                | target x == source y = comp x y where
-                    comp x y | source x == target x = y
-                             | source y == target y = x
-                             | otherwise = Chain (pathName x ++ pathName y) (pathArrows x ++ pathArrows y) (source x) (target y)
+        x<+>y   | isComposable x y = doComp x y
+                | otherwise = emptyPath
 
         -- Maps a pair of maps "f :: a->c" and "g :: b->d" to a pair "(a,b)" to obtain a pair "(c,d)"
         mapPair :: (a-> c)->(b-> d)->(a,b)->(c, d)
@@ -200,31 +205,26 @@ module Quiver (
         getPairs _ [] = []
         getPairs as bs = filterEmptyPaths [ a#b | a<-as, b<-bs]
 
-        newGetAllPaths :: (Path a, Path b) => [a] -> [b] -> [Chain]
-        newGetAllPaths [] _ = []
-        newGetAllPaths _ [] = []
-        newGetAllPaths a b      | all (== emptyPath) (getPairs a b) = map path a
-                                | otherwise = (map path a) ++ newGetAllPaths (getPairs a b) b
+        getAllPaths :: (Path a, Path b) => [a] -> [b] -> [Chain]
+        getAllPaths [] _ = []
+        getAllPaths _ [] = []
+        getAllPaths a b      | all (== emptyPath) (getPairs a b) = map path a
+                                | otherwise = (map path a) ++ getAllPaths (getPairs a b) b
 
-        paths :: Quiver -> [Chain]
-        paths q = [ stationaryPath v | v <- vertices q] ++ newGetAllPaths (arrows q) (arrows q)
+        pathsFrom :: (Path a) => a-> Quiver -> [Chain]
+        pathsFrom x q = filterEmptyPaths(map ((path x)#) (paths q))
 
-        pathsFromVertex :: Vertex -> Quiver -> [Chain]
-        pathsFromVertex v q = filterEmptyPaths(map ((stationaryPath v)#) (paths q))
+        pathsTo :: (Path a) => a -> Quiver -> [Chain]
+        pathsTo x q = filterEmptyPaths(map (#(path x)) (paths q))
 
         -- Basic check for empty
         isEmptyPath :: Chain->Bool
         isEmptyPath = (emptyPath ==)
 
-        -- Runs getPath.getWords for a given quiver looking for paths of all sizes (up to maxPathLength)
-        getAllPathsUnfiltered :: Quiver -> [Chain]
-        getAllPathsUnfiltered (Quiver n vs []) = []
-        getAllPathsUnfiltered q =  foldl (++) [] [getPathsFromWords i q | i<-[1..maxPathLength q]]
-
         -- The list returned by getAllPathsUnfiltired will, most like than not, be filled with "emptyPaths"
         -- This removes them, leaving only a list with proper paths
-        filterEmptyPaths :: [Chain] -> [Chain]
-        filterEmptyPaths (xs) = [ x | x <- xs, x/= emptyPath]
+        filterEmptyPaths :: (Path a) => [a] -> [a]
+        filterEmptyPaths (xs) = [ x | x <- xs, (path x) /= emptyPath]
 
         -- Removes the "Empty paths" when applying the (%) operator
         filterDeltaEmptyPaths :: (Chain,Chain) -> (Chain,Chain)

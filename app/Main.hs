@@ -25,4 +25,7 @@ main = do
     let q = Arrow "q" v6 v6
     let quiv = Quiver "Q" [v1,v2,v3,v4,v5] [a,b,c,e,f,g,h,i,j]
     print (paths quiv)
-    print (pathsFromVertex v1 quiv)
+    print (pathsFrom v1 quiv)
+    print (pathsTo v5 quiv)
+    print (pathsFrom a quiv)
+    print (pathsTo a quiv)
