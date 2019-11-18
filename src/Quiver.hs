@@ -13,10 +13,13 @@ module Quiver (
     , stationaryPath
     , arrowPath
     , paths
-    , pathsFrom
-    , pathsTo
+    , newPathsFrom
+    -- , pathsTo
+    , arrowsFrom
+    , adjacentVertices
+    , seenArrows
     ) where
-    
+        import Data.List
     -- Begin Exported
 
         -- Vertices only have names
@@ -63,7 +66,7 @@ module Quiver (
 
         
         paths :: Quiver -> [Chain]
-        paths q = [ stationaryPath v | v <- vertices q] ++ getAllPaths (arrows q) (arrows q)
+        paths q = [ stationaryPath v | v <- vertices q] ++ sort (concatMap (flip pathsFrom q) (vertices q))
 
         -- Checks if a quiver has cycles
         -- This works because in a set with "n" symbols, the maximal word with distinc symbols has precisely all the symbols
@@ -119,6 +122,37 @@ module Quiver (
         instance Eq Quiver where
             (Quiver n vs as) == (Quiver m ws bs) = n == m && vs == ws && as == bs
 
+        instance Ord Chain where
+            (<) c d | length (pathArrows c) == length (pathArrows d) = (<) (pathName c) (pathName d)
+                    | otherwise = (<) (length (pathArrows c)) (length (pathArrows d))
+
+            (>) c d | length (pathArrows c) == length (pathArrows d) = (>) (pathName c) (pathName d)
+                    | otherwise = (>) (length (pathArrows c)) (length (pathArrows d))
+
+            (<=) c d | length (pathArrows c) == length (pathArrows d) = (<=) (pathName c) (pathName d)
+                    | otherwise = (<=) (length (pathArrows c)) (length (pathArrows d))
+
+            (>=) c d | length (pathArrows c) == length (pathArrows d) = (>=) (pathName c) (pathName d)
+                    | otherwise = (>=) (length (pathArrows c)) (length (pathArrows d))
+
+            max c d | length (pathArrows c) == length (pathArrows d) =
+                        if max (pathName c) (pathName d) == pathName c
+                            then c
+                            else d
+                    | otherwise = 
+                        if max (length (pathArrows c)) (length (pathArrows d)) == length (pathArrows c)
+                            then c
+                            else d
+
+            min c d | length (pathArrows c) == length (pathArrows d) =
+                        if min (pathName c) (pathName d) == pathName c
+                            then c
+                            else d
+                    | otherwise = 
+                        if min (length (pathArrows c)) (length (pathArrows d)) == length (pathArrows c)
+                            then c
+                            else d
+                            
         -- Defining how to compose each path type
         instance Path Chain where
             source = pathSource
@@ -149,8 +183,8 @@ module Quiver (
         isComposable x y = target x == source y
 
         doComp :: Chain->Chain->Chain
-        doComp x y  | source x == target x = y
-                    | source y == target y = x
+        doComp x y  | and [source x == target x, pathArrows x == []] = y
+                    | and [source y == target y, pathArrows y == []] = x
                     | otherwise = Chain (pathName x ++ pathName y) (pathArrows x ++ pathArrows y) (source x) (target y)
 
         -- Basic path composition
@@ -211,11 +245,11 @@ module Quiver (
         getAllPaths a b      | all (== emptyPath) (getPairs a b) = map path a
                                 | otherwise = (map path a) ++ getAllPaths (getPairs a b) b
 
-        pathsFrom :: (Path a) => a-> Quiver -> [Chain]
-        pathsFrom x q = filterEmptyPaths(map ((path x)#) (paths q))
+        -- pathsFrom :: (Path a) => a-> Quiver -> [Chain]
+        -- pathsFrom x q = filterEmptyPaths(map ((path x)#) (paths q))
 
-        pathsTo :: (Path a) => a -> Quiver -> [Chain]
-        pathsTo x q = filterEmptyPaths(map (#(path x)) (paths q))
+        -- pathsTo :: (Path a) => a -> Quiver -> [Chain]
+        -- pathsTo x q = filterEmptyPaths(map (#(path x)) (paths q))
 
         -- Basic check for empty
         isEmptyPath :: Chain->Bool
@@ -232,6 +266,30 @@ module Quiver (
                                         | y == emptyPath = (x,path(target x))
                                         | otherwise = (x,y)
 
+        arrowsFrom :: (Path a) => a -> Quiver -> [Arrow]
+        arrowsFrom x q = [ a | a <- arrows q, source a == target x]
+
+        newPathsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
+        newPathsFrom x q as | newArrowsFrom x q as == [] = []
+                            | otherwise = map (x#) (newArrowsFrom x q as) ++ concatMap (reverseNewPathsFrom q (seenArrows x q as)) (map (x#) (newArrowsFrom x q as))
+
+        reverseNewPathsFrom :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
+        reverseNewPathsFrom q as x = newPathsFrom x q as
+
+        newArrowsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
+        newArrowsFrom x q as = [ b | b <- (arrowsFrom (path x) q), b `notElem` as ]
+
+        arrowsTo :: (Path a) => a -> Quiver -> [Arrow]
+        arrowsTo x q = [ a | a <- arrows q, target a == source x]
+
+        adjacentVertices :: (Path a) => a -> Quiver -> [Vertex]
+        adjacentVertices x q = [ v | v <- map target (arrowsFrom x q)] ++ [ v | v <- map source (arrowsTo x q)]
+
+        seenArrows :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
+        seenArrows x q as = as ++ newArrowsFrom x q as
+
+        pathsFrom :: (Path a) => a -> Quiver -> [Chain]
+        pathsFrom x q = newPathsFrom x q (pathArrows(path x))
 
 
         -- Used in Show Arrow
