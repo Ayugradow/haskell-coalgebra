@@ -6,14 +6,15 @@ module Quiver (
     , Path(..)
     , (#)
     , (%)
+    , emptyPath
     , maxPathLength
     , getAllPaths
     , hasCycles
     , longComp
     , stationaryPath
     , arrowPath
-    , getPairs
-    , newGetAllPaths
+    , paths
+    , pathsFromVertex
     ) where
     
     -- Begin Exported
@@ -40,17 +41,19 @@ module Quiver (
         -- Paths are collections of composable arrows
         data Chain = Chain {
             pathName :: String,
-            pathArrows :: [Arrow]
+            pathArrows :: [Arrow],
+            pathSource :: Vertex,
+            pathTarget :: Vertex
         }
 
         -- Actual definition of how to compose two composable types
         (#) :: (Path a, Path b) => a->b->Chain
-        (#) a b = toPath (a,b)
+        (#) a b = path (a,b)
 
         -- The inverse operation to composing
         -- Breaks a path into all its possible subpaths
         (%) :: Chain -> [(Chain,Chain)]
-        (%) (Chain n []) = [((Chain n []),(Chain n []))]
+        (%) (Chain n [] s t) = [((Chain n [] s t),(Chain n [] s t))]
         (%) p = (map filterDeltaEmptyPaths . map (mapPair longComp longComp) . splitPath) p
 
         -- Gets the maximum size of a path in a quiver
@@ -73,11 +76,11 @@ module Quiver (
 
     -- Begin Auxiliary
 
-        -- "Composable" class of things that can be concatenated
+        -- "Path" class of things that are path-like
         class Path a where
             source :: a -> Vertex
             target :: a -> Vertex
-            toPath :: a -> Chain
+            path :: a -> Chain
             pathLength :: a -> Int
 
         -- Redefining the show for each type
@@ -96,7 +99,7 @@ module Quiver (
             {- uncomment this to allow verbose shows - i.e. showing 1 -a-> 2 -b-> 3 instead of just ab
             show (Chain "" []) = "Empty path"
             show (Chain n as) = n ++ ": " ++ pathJoin as -}
-            show = pathName
+            show (Chain n as s t) = n
 
         -- Sadly we cannot draw the quivers as they will, more often than not, be non-planar
         instance Show Quiver where
@@ -110,42 +113,45 @@ module Quiver (
             (Arrow n s t) == (Arrow m d y) = n == m && s == d && t == y
 
         instance Eq Chain where
-            (Chain n as) == (Chain m bs) = as == bs
+            (Chain n as s t) == (Chain m bs s' t')      | and [as == [], bs == []] = n == m
+                                                        | otherwise = as == bs
 
         instance Eq Quiver where
             (Quiver n vs as) == (Quiver m ws bs) = n == m && vs == ws && as == bs
 
-        -- Defining how to compose each composable type
+        -- Defining how to compose each path type
         instance Path Chain where
-            source = source . head . pathArrows
-            target = target . last . pathArrows
-            toPath = id
+            source = pathSource
+            target = pathTarget
+            path = id
             pathLength = length . pathArrows  
 
         instance Path Vertex where
             source = id
             target = id
-            toPath = stationaryPath
+            path = stationaryPath
             pathLength = const 0
 
         instance Path Arrow where
             source = arrowSource
             target = arrowTarget
-            toPath = arrowPath
+            path = arrowPath
             pathLength = const 1
 
-        -- Now we define pairs of composable types as also being composable
+        -- Now we define pairs of path types as also being paths
         instance (Path a, Path b) => Path (a,b) where
             source (a,b) = source a
             target (a,b) = target b
-            toPath (a,b) = (toPath a)<+>(toPath b)
+            path (a,b) = (path a)<+>(path b)
             pathLength (a,b) = pathLength a + pathLength b
 
         -- Basic path composition
         (<+>) :: Chain->Chain->Chain
-        x<+>y   | or [x == emptyPath, y == emptyPath] = emptyPath
-                | target x == source y = Chain (pathName x ++ pathName y) (pathArrows x ++ pathArrows y)
-                | otherwise = emptyPath
+        x<+>y   | or [x == emptyPath, y == emptyPath, target x /= source y] = emptyPath
+                | target x == source y = comp x y where
+                    comp x y | source x == target x = y
+                             | source y == target y = x
+                             | otherwise = Chain (pathName x ++ pathName y) (pathArrows x ++ pathArrows y) (source x) (target y)
 
         -- Maps a pair of maps "f :: a->c" and "g :: b->d" to a pair "(a,b)" to obtain a pair "(c,d)"
         mapPair :: (a-> c)->(b-> d)->(a,b)->(c, d)
@@ -177,7 +183,7 @@ module Quiver (
         -- Generalizes composition of two arrows to a finite list of arrows
         longComp :: (Path a) => [a]->Chain
         longComp [] = emptyPath
-        longComp [x] = toPath x
+        longComp [x] = path x
         longComp (x:xs) = x#longComp xs
 
         -- Tries to compose all words of arrows
@@ -197,8 +203,14 @@ module Quiver (
         newGetAllPaths :: (Path a, Path b) => [a] -> [b] -> [Chain]
         newGetAllPaths [] _ = []
         newGetAllPaths _ [] = []
-        newGetAllPaths a b      | all (== emptyPath) (getPairs a b) = map toPath a
-                                | otherwise = (map toPath a) ++ newGetAllPaths (getPairs a b) b
+        newGetAllPaths a b      | all (== emptyPath) (getPairs a b) = map path a
+                                | otherwise = (map path a) ++ newGetAllPaths (getPairs a b) b
+
+        paths :: Quiver -> [Chain]
+        paths q = [ stationaryPath v | v <- vertices q] ++ newGetAllPaths (arrows q) (arrows q)
+
+        pathsFromVertex :: Vertex -> Quiver -> [Chain]
+        pathsFromVertex v q = filterEmptyPaths(map ((stationaryPath v)#) (paths q))
 
         -- Basic check for empty
         isEmptyPath :: Chain->Bool
@@ -216,8 +228,8 @@ module Quiver (
 
         -- Removes the "Empty paths" when applying the (%) operator
         filterDeltaEmptyPaths :: (Chain,Chain) -> (Chain,Chain)
-        filterDeltaEmptyPaths (x,y)     | x == emptyPath = (toPath(source y),y)
-                                        | y == emptyPath = (x,toPath(target x))
+        filterDeltaEmptyPaths (x,y)     | x == emptyPath = (path(source y),y)
+                                        | y == emptyPath = (x,path(target x))
                                         | otherwise = (x,y)
 
 
@@ -231,19 +243,18 @@ module Quiver (
         pathJoin arr = case arr of
             [] -> ""
             [x] -> vertexName (arrowSource x) ++ " -" ++ arrowName x ++ "-> " ++ vertexName (arrowTarget x)
-            (x : xs) -> vertexName (arrowSource x) ++ " -" ++ arrowName x ++ "-> " ++ pathJoin xs
-        
+            (x : xs) -> vertexName (arrowSource x) ++ " -" ++ arrowName x ++ "-> " ++ pathJoin xs        
 
         -- The empty path will be useful
         emptyPath :: Chain
-        emptyPath = Chain "" []
+        emptyPath = Chain "" [] (Vertex "") (Vertex "")
 
         -- The "do nothing" path at a vertex that corresponds to "staying at home at the vertex"
         stationaryPath :: Vertex->Chain
-        stationaryPath v = Chain ("e" ++ vertexName v) []
+        stationaryPath v = Chain ("e" ++ vertexName v) [] (Vertex (vertexName v)) (Vertex (vertexName v))
 
         -- The basic paths corresponding to each arrow
         arrowPath :: Arrow -> Chain
-        arrowPath a = Chain (arrowName a) [a]
+        arrowPath a = Chain (arrowName a) [a] (Vertex (vertexName (source a))) (Vertex (vertexName (target a)))
 
     -- End Auxiliary
