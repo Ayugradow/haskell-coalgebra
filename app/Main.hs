@@ -2,6 +2,7 @@ module Main where
 
 import Lib
 import Quiver
+import Control.Monad
 
 main :: IO ()
 main = do
@@ -24,6 +25,7 @@ main = do
     let p = Arrow "p" v6 v6
     let q = Arrow "q" v6 v6
     let quiv = Quiver "Q" [v1,v2,v3,v4,v5] [a,b,c,d,e,f,g,h,i,j]
-    print (paths quiv)
-    print (pathsFrom v1 quiv)
-    print (pathsTo v1 quiv)
+    let e' = [v1,v2,v3]
+    print (map (#v1) (pathsFrom v1 quiv))
+    print (pathsFromTo v1 v1 quiv)
+    print (pathsToFrom v1 v1 quiv)

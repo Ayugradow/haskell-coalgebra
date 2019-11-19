@@ -17,6 +17,8 @@ module Quiver (
     , pathsTo
     , arrowsFrom
     , arrowsTo
+    , pathsFromTo
+    , pathsToFrom
     ) where
         import Data.List
     -- Begin Exported
@@ -194,6 +196,23 @@ module Quiver (
         -- Maps a pair of maps "f :: a->c" and "g :: b->d" to a pair "(a,b)" to obtain a pair "(c,d)"
         mapPair :: (a-> c)->(b-> d)->(a,b)->(c, d)
         mapPair f g (x,y) = (f x, g y)
+
+        mapPair' :: (a-> c)->(a-> c)->[a]->[c]
+        mapPair' f g [x,y] = [ f x ] ++ [ g y ]
+
+        crossPairs :: [a]->[a]->[[a]]
+        crossPairs x [] = [x]
+        crossPairs [] y = [y]
+        crossPairs [x] ys = [ [x]++[y] | y<-ys ]
+        crossPairs xs [y] = [ [x]++[y] | x<-xs ]
+        crossPairs (x:xs) ys = crossPairs [x] ys ++ crossPairs xs ys
+
+        crossMap :: (a->b->c)->[a]->[b]->[c]
+        crossMap f [] _ = []
+        crossMap f _ [] = []
+        crossMap f xs [y] = [ f x y | x<-xs ]
+        crossMap f [x] ys = [ f x y | y<-ys ]
+        crossMap f (x:xs) ys = crossMap f [x] ys ++ crossMap f xs ys
     
         -- Breaks a path into pairs of lists of arrows
         -- Needed for the path decomposition function
@@ -271,37 +290,43 @@ module Quiver (
         arrowsTo :: (Path a) => a -> Quiver -> [Arrow]
         arrowsTo x q = [ a | a <- arrows q, source x == target a]
 
-        newPathsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
-        newPathsFrom x q as | newArrowsFrom x q as == [] = []
-                            | otherwise = map (x#) (newArrowsFrom x q as) ++ concatMap (reverseNewPathsFrom q (seenArrowsFrom x q as)) (map (x#) (newArrowsFrom x q as))
+        unseenArrowsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
+        unseenArrowsFrom x q as = [ b | b <- (arrowsFrom (path x) q), b `notElem` as ]
 
-        newPathsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
-        newPathsTo x q as   | newArrowsTo x q as == [] = []
-                            | otherwise = map (#x) (newArrowsTo x q as) ++ concatMap (reverseNewPathsTo q (seenArrowsTo x q as)) (map (#x) (newArrowsTo x q as))
-
-        reverseNewPathsFrom :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
-        reverseNewPathsFrom q as x = newPathsFrom x q as
-
-        reverseNewPathsTo :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
-        reverseNewPathsTo q as x = newPathsTo x q as
-
-        newArrowsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        newArrowsFrom x q as = [ b | b <- (arrowsFrom (path x) q), b `notElem` as ]
-
-        newArrowsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        newArrowsTo x q as = [ b | b <- (arrowsTo (path x) q), b `notElem` as ]
+        unseenArrowsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
+        unseenArrowsTo x q as = [ b | b <- (arrowsTo (path x) q), b `notElem` as ]
 
         seenArrowsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        seenArrowsFrom x q as = as ++ newArrowsFrom x q as
+        seenArrowsFrom x q as = as ++ unseenArrowsFrom x q as
 
         seenArrowsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        seenArrowsTo x q as = as ++ newArrowsTo x q as
+        seenArrowsTo x q as = as ++ unseenArrowsTo x q as
+
+        unseenPathsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
+        unseenPathsFrom x q as | unseenArrowsFrom x q as == [] = []
+                            | otherwise = map (x#) (unseenArrowsFrom x q as) ++ concatMap (reverseNewPathsFrom q (seenArrowsFrom x q as)) (map (x#) (unseenArrowsFrom x q as))
+
+        unseenPathsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
+        unseenPathsTo x q as   | unseenArrowsTo x q as == [] = []
+                            | otherwise = map (#x) (unseenArrowsTo x q as) ++ concatMap (reverseNewPathsTo q (seenArrowsTo x q as)) (map (#x) (unseenArrowsTo x q as))
+
+        reverseNewPathsFrom :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
+        reverseNewPathsFrom q as x = unseenPathsFrom x q as
+
+        reverseNewPathsTo :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
+        reverseNewPathsTo q as x = unseenPathsTo x q as
 
         pathsFrom :: (Path a) => a -> Quiver -> [Chain]
-        pathsFrom x q = newPathsFrom x q (pathArrows(path x))
+        pathsFrom x q = unseenPathsFrom x q (pathArrows(path x))
 
         pathsTo :: (Path a) => a -> Quiver -> [Chain]
-        pathsTo x q = newPathsTo x q (pathArrows(path x))
+        pathsTo x q = unseenPathsTo x q (pathArrows(path x))
+
+        pathsFromTo :: (Path a) => a -> a -> Quiver -> [Chain]
+        pathsFromTo x y q = map (x#) (pathsTo y q)
+
+        pathsToFrom :: (Path a) => a -> a -> Quiver -> [Chain]
+        pathsToFrom x y q = map (#x) (pathsFrom y q)
 
 
         -- Used in Show Arrow
