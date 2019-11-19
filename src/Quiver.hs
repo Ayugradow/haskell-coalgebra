@@ -13,11 +13,10 @@ module Quiver (
     , stationaryPath
     , arrowPath
     , paths
-    , newPathsFrom
-    -- , pathsTo
+    , pathsFrom
+    , pathsTo
     , arrowsFrom
-    , adjacentVertices
-    , seenArrows
+    , arrowsTo
     ) where
         import Data.List
     -- Begin Exported
@@ -269,27 +268,40 @@ module Quiver (
         arrowsFrom :: (Path a) => a -> Quiver -> [Arrow]
         arrowsFrom x q = [ a | a <- arrows q, source a == target x]
 
+        arrowsTo :: (Path a) => a -> Quiver -> [Arrow]
+        arrowsTo x q = [ a | a <- arrows q, source x == target a]
+
         newPathsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
         newPathsFrom x q as | newArrowsFrom x q as == [] = []
-                            | otherwise = map (x#) (newArrowsFrom x q as) ++ concatMap (reverseNewPathsFrom q (seenArrows x q as)) (map (x#) (newArrowsFrom x q as))
+                            | otherwise = map (x#) (newArrowsFrom x q as) ++ concatMap (reverseNewPathsFrom q (seenArrowsFrom x q as)) (map (x#) (newArrowsFrom x q as))
+
+        newPathsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
+        newPathsTo x q as   | newArrowsTo x q as == [] = []
+                            | otherwise = map (#x) (newArrowsTo x q as) ++ concatMap (reverseNewPathsTo q (seenArrowsTo x q as)) (map (#x) (newArrowsTo x q as))
 
         reverseNewPathsFrom :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
         reverseNewPathsFrom q as x = newPathsFrom x q as
 
+        reverseNewPathsTo :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
+        reverseNewPathsTo q as x = newPathsTo x q as
+
         newArrowsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
         newArrowsFrom x q as = [ b | b <- (arrowsFrom (path x) q), b `notElem` as ]
 
-        arrowsTo :: (Path a) => a -> Quiver -> [Arrow]
-        arrowsTo x q = [ a | a <- arrows q, target a == source x]
+        newArrowsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
+        newArrowsTo x q as = [ b | b <- (arrowsTo (path x) q), b `notElem` as ]
 
-        adjacentVertices :: (Path a) => a -> Quiver -> [Vertex]
-        adjacentVertices x q = [ v | v <- map target (arrowsFrom x q)] ++ [ v | v <- map source (arrowsTo x q)]
+        seenArrowsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
+        seenArrowsFrom x q as = as ++ newArrowsFrom x q as
 
-        seenArrows :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        seenArrows x q as = as ++ newArrowsFrom x q as
+        seenArrowsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
+        seenArrowsTo x q as = as ++ newArrowsTo x q as
 
         pathsFrom :: (Path a) => a -> Quiver -> [Chain]
         pathsFrom x q = newPathsFrom x q (pathArrows(path x))
+
+        pathsTo :: (Path a) => a -> Quiver -> [Chain]
+        pathsTo x q = newPathsTo x q (pathArrows(path x))
 
 
         -- Used in Show Arrow
