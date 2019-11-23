@@ -17,8 +17,14 @@ module Quiver (
     , pathsTo
     , arrowsFrom
     , arrowsTo
-    , pathsFromTo
-    , pathsToFrom
+    , tailsFrom
+    , cellsFrom
+    , headsTo
+    , pathHeads
+    , pathTails
+    , isHead
+    , isTail
+    , localQuiver
     ) where
         import Data.List
     -- Begin Exported
@@ -56,9 +62,8 @@ module Quiver (
 
         -- The inverse operation to composing
         -- Breaks a path into all its possible subpaths
-        (%) :: Chain -> [(Chain,Chain)]
-        (%) (Chain n [] s t) = [((Chain n [] s t),(Chain n [] s t))]
-        (%) p = (map filterDeltaEmptyPaths . map (mapPair longComp longComp) . splitPath) p
+        (%) :: (Path a) => a -> [(Chain,Chain)]
+        (%) p = (map filterDeltaEmptyPaths . splitPath) p
 
         -- Gets the maximum size of a path in a quiver
         maxPathLength :: Quiver -> Int
@@ -67,7 +72,7 @@ module Quiver (
 
         
         paths :: Quiver -> [Chain]
-        paths q = [ stationaryPath v | v <- vertices q] ++ sort (concatMap (flip pathsFrom q) (vertices q))
+        paths q = sort ([ stationaryPath v | v <- vertices q] ++ concat [ pathsFrom v q | v<-vertices q])
 
         -- Checks if a quiver has cycles
         -- This works because in a set with "n" symbols, the maximal word with distinc symbols has precisely all the symbols
@@ -75,6 +80,9 @@ module Quiver (
         hasCycles :: Quiver -> Bool
         hasCycles (Quiver n vs []) = False
         hasCycles q = filterEmptyPaths (getPathsFromWords (succ (maxPathLength q)) q) /= []
+
+        localQuiver :: (Path a) => [a] -> Quiver -> Quiver
+        localQuiver as q = Quiver ((concatMap (pathName . path) as) ++ (quiverName q) ++ (concatMap (pathName . path) as)) (map toVertex as) (map toArrow (cellsFrom as q))
 
     -- End Exported
 
@@ -87,6 +95,7 @@ module Quiver (
             path :: a -> Chain
             pathLength :: a -> Int
 
+
         -- Redefining the show for each type
         -- Can be easily rewritten to show different things
         instance Show Vertex where
@@ -95,8 +104,8 @@ module Quiver (
         -- Show arrow is done by literally drawing the arrow between its source and target vertices
         -- so we need some string manipulation
         instance Show Arrow where
-            {- uncomment this to allow verbose shows - i.e. showing 1 -a-> 2 instead of just a 
-            show (Arrow a s t) = show s ++ " -" ++ a ++ "-> " ++ show t -} 
+            -- uncomment this to allow verbose shows - i.e. showing 1 -a-> 2 instead of just a 
+            -- show (Arrow a s t) = show s ++ " -" ++ a ++ "-> " ++ show t
             show = arrowName
 
         instance Show Chain where
@@ -207,6 +216,12 @@ module Quiver (
         crossPairs xs [y] = [ [x]++[y] | x<-xs ]
         crossPairs (x:xs) ys = crossPairs [x] ys ++ crossPairs xs ys
 
+        pi1 :: (a,b) -> a
+        pi1 (x,y) = x
+
+        pi2 :: (a,b) -> b
+        pi2 (x,y) = y
+
         crossMap :: (a->b->c)->[a]->[b]->[c]
         crossMap f [] _ = []
         crossMap f _ [] = []
@@ -216,8 +231,9 @@ module Quiver (
     
         -- Breaks a path into pairs of lists of arrows
         -- Needed for the path decomposition function
-        splitPath :: Chain->[([Arrow],[Arrow])]
-        splitPath p = successiveMap splitAt (length (pathArrows p)) (pathArrows p)
+        splitPath :: (Path a) => a ->[(Chain,Chain)]
+        splitPath p     | pathArrows(path p) == [] = [(path p, path p)]
+                        | otherwise = map (mapPair longComp longComp) (successiveMap splitAt (length (pathArrows (path p))) (pathArrows (path p)))
 
         -- Apply a function "f", which depends on a number "m" and a parameter "a", "m" times, recording the outputs in a list
         -- Can be easily changed to differentiate between the parameter "m" and the number of runs of the function
@@ -287,47 +303,56 @@ module Quiver (
         arrowsFrom :: (Path a) => a -> Quiver -> [Arrow]
         arrowsFrom x q = [ a | a <- arrows q, source a == target x]
 
+        unseenArrowsFrom :: (Path a) => a -> Quiver -> [Arrow]
+        unseenArrowsFrom x q = [ b | b <- (arrowsFrom (path x) q), b `notElem` (pathArrows (path x))]
+
+        pathsFrom :: (Path a) => a -> Quiver -> [Chain]
+        pathsFrom x q     | unseenArrowsFrom x q == [] = []
+                                | otherwise = map (x#) (unseenArrowsFrom x q) ++ concat [ pathsFrom p q | p<-(map (x#) (unseenArrowsFrom x q))]
+
         arrowsTo :: (Path a) => a -> Quiver -> [Arrow]
         arrowsTo x q = [ a | a <- arrows q, source x == target a]
 
-        unseenArrowsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        unseenArrowsFrom x q as = [ b | b <- (arrowsFrom (path x) q), b `notElem` as ]
-
-        unseenArrowsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        unseenArrowsTo x q as = [ b | b <- (arrowsTo (path x) q), b `notElem` as ]
-
-        seenArrowsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        seenArrowsFrom x q as = as ++ unseenArrowsFrom x q as
-
-        seenArrowsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Arrow]
-        seenArrowsTo x q as = as ++ unseenArrowsTo x q as
-
-        unseenPathsFrom :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
-        unseenPathsFrom x q as | unseenArrowsFrom x q as == [] = []
-                            | otherwise = map (x#) (unseenArrowsFrom x q as) ++ concatMap (reverseNewPathsFrom q (seenArrowsFrom x q as)) (map (x#) (unseenArrowsFrom x q as))
-
-        unseenPathsTo :: (Path a) => a -> Quiver -> [Arrow] -> [Chain]
-        unseenPathsTo x q as   | unseenArrowsTo x q as == [] = []
-                            | otherwise = map (#x) (unseenArrowsTo x q as) ++ concatMap (reverseNewPathsTo q (seenArrowsTo x q as)) (map (#x) (unseenArrowsTo x q as))
-
-        reverseNewPathsFrom :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
-        reverseNewPathsFrom q as x = unseenPathsFrom x q as
-
-        reverseNewPathsTo :: (Path a) => Quiver -> [Arrow] -> a -> [Chain]
-        reverseNewPathsTo q as x = unseenPathsTo x q as
-
-        pathsFrom :: (Path a) => a -> Quiver -> [Chain]
-        pathsFrom x q = unseenPathsFrom x q (pathArrows(path x))
+        unseenArrowsTo :: (Path a) => a -> Quiver -> [Arrow]
+        unseenArrowsTo x q = [ b | b <- (arrowsTo (path x) q), b `notElem` pathArrows (path x) ]
 
         pathsTo :: (Path a) => a -> Quiver -> [Chain]
-        pathsTo x q = unseenPathsTo x q (pathArrows(path x))
+        pathsTo x q   | unseenArrowsTo x q == [] = []
+                            | otherwise = map (#x) (unseenArrowsTo x q) ++ concat [ pathsTo p q | p<-(map (#x) (unseenArrowsTo x q))]
 
-        pathsFromTo :: (Path a) => a -> a -> Quiver -> [Chain]
-        pathsFromTo x y q = map (x#) (pathsTo y q)
+        tailsFrom :: (Path a) => [a] -> Quiver -> [Chain]
+        tailsFrom [] q = []
+        tailsFrom xs q = (tailLoopsFrom xs q) ++ [ p | p<-paths q, not (xs `isTail` [p]), xs `isHead` [p], p `notElem` tailLoopsFrom xs q]
 
-        pathsToFrom :: (Path a) => a -> a -> Quiver -> [Chain]
-        pathsToFrom x y q = map (#x) (pathsFrom y q)
+        headsTo :: (Path a) => [a] -> Quiver -> [Chain]
+        headsTo [] q = []
+        headsTo xs q = (headLoopsTo xs q) ++ [ p | p<-paths q, not (xs `isHead` [p]), xs `isTail` [p], p `notElem` headLoopsTo xs q]
 
+        cellsFrom :: (Path a) => [a] -> Quiver -> [Chain]
+        cellsFrom [] q = []
+        cellsFrom xs q = [ p | p<-paths q, xs `isHead` [p], xs `isTail` [p] , (length . pathArrows) p >= 1 ]
+
+        tailLoopsFrom :: (Path a) => [a] -> Quiver -> [Chain]
+        tailLoopsFrom [] q = []
+        tailLoopsFrom xs q = [ p | p<-paths q, xs `isHead` [p], length (pathArrows p) == 1]
+        
+        headLoopsTo :: (Path a) => [a] -> Quiver -> [Chain]
+        headLoopsTo [] q = []
+        headLoopsTo xs q = [ p | p<-paths q, xs `isTail` [p], length (pathArrows p) == 1]
+
+        isHead :: (Path a, Path b) => [a] -> [b] -> Bool
+        isHead [x]      ys = path x `elem` (pathHeads (map path ys))
+        isHead (x:xs)   ys = or [ [x] `isHead` ys, xs `isHead` ys ]
+
+        isTail :: (Path a, Path b) => [a] -> [b] -> Bool
+        isTail [x]      ys = path x `elem` (pathTails (map path ys))
+        isTail (x:xs)   ys = or [ [x] `isTail` ys, xs `isTail` ys ]
+
+        pathHeads :: (Path a) => [a] -> [Chain]
+        pathHeads xs = map pi1 (concatMap (%) xs)
+
+        pathTails :: (Path a) => [a] -> [Chain]
+        pathTails xs = map pi2 (concatMap (%) xs)
 
         -- Used in Show Arrow
         strJoin sep arr = case arr of
@@ -351,5 +376,15 @@ module Quiver (
         -- The basic paths corresponding to each arrow
         arrowPath :: Arrow -> Chain
         arrowPath a = Chain (arrowName a) [a] (Vertex (vertexName (source a))) (Vertex (vertexName (target a)))
+
+        toVertex :: (Path a) => a -> Vertex
+        toVertex x  | (length . pathArrows . path) x == 0 = Vertex (stripChars "e" ((pathName . path) x))
+                    | otherwise = Vertex ((pathName . path) x)
+
+        toArrow :: (Path a) => a -> Arrow
+        toArrow x = Arrow ((pathName . path) x) ((source . path) x) ((target . path) x)
+
+        stripChars :: String -> String -> String
+        stripChars = filter . flip notElem
 
     -- End Auxiliary
