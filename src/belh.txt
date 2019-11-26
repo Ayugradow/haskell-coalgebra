@@ -10,7 +10,6 @@ module Quiver (
     , Path(..)
     , (#)
     , (%)
-    , (.+.)
     , emptyPath
     , maxPathLength
     , hasCycles
@@ -30,7 +29,11 @@ module Quiver (
     , isHead
     , isTail
     , localQuiver
-    , mapPair
+    , gatherSums
+    , combineSums
+    , simplifySums
+    , filterSums
+    , showSum
     ) where
         import Data.List
         import Data.Function
@@ -74,9 +77,6 @@ module Quiver (
         (%) :: (Path a) => a -> [(Chain,Chain)]
         (%) p = (map filterDeltaEmptyPaths . splitPath) p
 
-        (.+.) :: (Num a, Ord a, Path b) => [(a,[b])] -> [(a,[b])] -> [(a,[Chain])]
-        (.+.) x y = foldl1 (^+^) (map (map (mapPair id  (map path))) [x,y])
-
 
         -- Gets the maximum size of a path in a quiver
         maxPathLength :: Quiver -> Int
@@ -107,6 +107,13 @@ module Quiver (
             target      :: a -> Vertex
             path        :: a -> Chain
             pathLength  :: a -> Int
+
+        -- class Vectorspace s v | v -> s where
+        --     (.*)    :: s -> v -> v
+        --     (.+.)   :: v -> v -> v
+        --     vnegate :: v -> v
+        --     vzero   :: v
+
 
 
         -- Redefining the show for each type
@@ -194,17 +201,15 @@ module Quiver (
             path = arrowPath
             pathLength = const 1
 
-        instance AdditiveGroup [Chain] where
-            zeroV           = []
-            (^+^)   xs  ys  = showSum . concatMap pi2 $ showSum' [(1,xs),(1,ys)]
-            negateV x               | isNegativeV x = [Chain ((tail . pathName) a) (pathArrows a) (source a) (target a) | a<-x]
-                                    | otherwise     = [Chain ("-" ++ pathName a) (pathArrows a) (source a) (target a) | a<-x]
+        -- instance Vectorspace a [Chain] where
+        --     (.+.) x y = x++y
+        --     (.*) a x = map (a<**>) x
+        --     vzero = const [emptyPath]
 
-        instance (Num a, Ord a) => AdditiveGroup [(a,[Chain])] where
+        instance AdditiveGroup [(Int,[Chain])] where
             zeroV           = [(0,[])]
-            (^+^)   xs  ys  = showSum'(xs ++ ys)
-            negateV xs      = [(-pi1 x, negateV [a | a<- pi2 x]) | x<-xs]
-
+            (^+^)   xs  ys  = showSum (xs ++ ys)
+            negateV xs      = [(-pi1 x, [inverseChain a | a<- pi2 x]) | x<-xs]
 
         isComposable :: Chain->Chain->Bool
         isComposable x y = target x == source y
@@ -219,11 +224,10 @@ module Quiver (
         x<+>y   | isComposable x y = doComp x y
                 | otherwise = emptyPath
 
-        (<**>) :: (Num a, Show a, Eq a) => a -> [Chain] -> [Chain]
-        n<**>xs  | n == 0 = []
-                | n == 1 = xs
-                | n == -1 = negateV xs
-                | otherwise = [Chain (show n ++ pathName x) (pathArrows x) (source x) (target x) | x<-xs]
+        (<**>) :: (Num a, Show a, Eq a) => a -> [(a,[Chain])] -> [(a,[Chain])]
+        n<**>xs     | n == 0 = [(0,[])]
+                    | n == 1 = xs
+                    | otherwise = [(n*(pi1 x), pi2 x) | x<-xs]
 
         -- Maps a pair of maps "f :: a->c" and "g :: b->d" to a pair "(a,b)" to obtain a pair "(c,d)"
         mapPair :: (a-> c)->(b-> d)->(a,b)->(c, d)
@@ -245,41 +249,26 @@ module Quiver (
         pi2 :: (a,b) -> b
         pi2 (x,y) = y
 
-        isNegativeV :: [Chain] -> Bool
-        isNegativeV xs = [Chain ( stripChars "-" (pathName a)) (pathArrows a) (source a) (target a) | a<-xs] /= xs
+        isNegativeV :: (Int,[Chain]) -> Bool
+        isNegativeV xs = [Chain ( stripChars "-" (pathName a)) (pathArrows a) (source a) (target a) | a<- pi2 xs] /= pi2 xs
 
         gatherSums :: [Chain] -> [([Chain],Int)]
         gatherSums = map (\x -> ([head x], length x)) . group . sort
 
-        combineSums :: [([Chain],Int)] -> [[([Chain],Int)]]
-        combineSums xs = (groupBy ((==) `on` fst)) . sort $ ([ (negateV . pi1 $ x,-pi2 x) | x<-xs, isNegativeV . pi1 $ x] ++ [ x | x<-xs, not . isNegativeV . pi1 $ x])
+        combineSums :: [(Int,[Chain])] -> [[(Int,[Chain])]]
+        combineSums xs = (groupBy ((==) `on` snd)) . sort $ ([ (-pi1 x, map inverseChain . pi2 $ x) | x<-xs, isNegativeV x] ++ [ x | x<-xs, not . isNegativeV $ x])
 
-        simplifySums :: [[([Chain],Int)]] -> [([Chain],Int)]
-        simplifySums as = [ (pi1 x, foldl1 (+) (map pi2 a)) | a<-as, x<-a]
+        simplifySums :: [[(Int,[Chain])]] -> [(Int,[Chain])]
+        simplifySums as = [ (foldl1 (+) (map pi1 a), pi2 x) | a<-as, x<-a]
 
-        filterSums :: [([Chain],Int)] -> [(Int,[Chain])]
-        filterSums xs = [ (pi2 x, pi1 x) | x<-[ head p | p<-group . sort $ xs ], pi2 x /= 0 ]
+        filterSums :: [(Int,[Chain])] -> [(Int,[Chain])]
+        filterSums xs = [ (pi1 x, pi2 x) | x<-[ head p | p<-group . sort $ xs ], pi1 x /= 0 ]
 
-        showSum :: [Chain] -> [Chain]
-        showSum = concatMap zModule . filterSums . simplifySums . combineSums . gatherSums
+        showSum :: [(Int,[Chain])] -> [(Int,[Chain])]
+        showSum = filterSums . simplifySums . combineSums
 
-        gatherSums' :: [Chain] -> [([Chain],Int)]
-        gatherSums' = map (\x -> ([head x], length x)) . group . sort
-
-        combineSums' :: (Num a, Ord a) => [(a,[Chain])] -> [[(a,[Chain])]]
-        combineSums' xs = (groupBy ((==) `on` snd)) . sort $ ([ (-pi1 x, negateV . pi2 $ x) | x<-xs, isNegativeV . pi2 $ x] ++ [ x | x<-xs, not . isNegativeV . pi2 $ x])
-
-        simplifySums' :: (Num a, Ord a) => [[(a,[Chain])]] -> [(a,[Chain])]
-        simplifySums' as = [ (foldl1 (+) (map pi1 a), pi2 x) | a<-as, x<-a]
-
-        filterSums' :: (Num a, Ord a) => [(a,[Chain])] -> [(a,[Chain])]
-        filterSums' xs = [ (pi1 x, pi2 x) | x<-[ head p | p<-group . sort $ xs ], pi1 x /= 0 ]
-
-        showSum' :: (Num a, Ord a) => [(a,[Chain])] -> [(a,[Chain])]
-        showSum' = filterSums' . simplifySums' . combineSums'
-
-        zModule :: (Int,[Chain]) -> [Chain]
-        zModule (n, xs) = n<**>xs
+        -- zModule :: (Int,[Chain]) -> [Chain]
+        -- zModule (n, xs) = n<**>xs
 
         crossMap :: (a->b->c)->[a]->[b]->[c]
         crossMap f [] _ = []
@@ -421,6 +410,10 @@ module Quiver (
         -- The empty path will be useful
         emptyPath :: Chain
         emptyPath = Chain "" [] (Vertex "") (Vertex "")
+
+        inverseChain :: Chain -> Chain
+        inverseChain x  | "-" `isPrefixOf`pathName x    = Chain (tail . pathName $ x)   (pathArrows x) (source x) (target x)
+                        | otherwise                     = Chain ("-" ++ pathName x)     (pathArrows x) (source x) (target x)
 
         -- The "do nothing" path at a vertex that corresponds to "staying at home at the vertex"
         stationaryPath :: Vertex->Chain
