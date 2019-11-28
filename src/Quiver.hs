@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
+{-# LANGUAGE DatatypeContexts  #-}
 
 module Quiver (
     Quiver (..)
@@ -8,9 +9,15 @@ module Quiver (
     , Arrow(..)
     , Chain(..)
     , Path(..)
+    , Tensor(..)
+    , (⊗)
     , (#)
     , (%)
     , (.+.)
+    , (.-.)
+    , (-.)
+    , (.*)
+    -- , (+⊗+)
     , emptyPath
     , maxPathLength
     , hasCycles
@@ -35,7 +42,7 @@ module Quiver (
         import Data.List
         import Data.Function
         import Data.AdditiveGroup
-        import Data.VectorSpace
+
     -- Begin Exported
 
         -- Vertices only have names
@@ -65,18 +72,36 @@ module Quiver (
             pathTarget :: Vertex
         }
 
+        data Tensor a b = Tensor {
+            leftT :: [a],
+            rightT :: [b]
+        }
+
+        data Mod a b = Mod {
+            scalar :: a,
+            vec :: b
+        }
+
         -- Actual definition of how to compose two composable types
         (#) :: (Path a, Path b) => a->b->Chain
         (#) a b = (path a)<+>(path b)
 
         -- The inverse operation to composing
         -- Breaks a path into all its possible subpaths
-        (%) :: (Path a) => a -> [(Chain,Chain)]
-        (%) p = (map filterDeltaEmptyPaths . splitPath) p
+        (%) :: (Path a, Num b, Eq b) => a -> [(b,[(Chain,Chain)])]
+        (%) p = [ (1, [x]) | x<-(map filterDeltaEmptyPaths . splitPath) p]
 
-        (.+.) :: (Num a, Ord a, Path b) => [(a,[b])] -> [(a,[b])] -> [(a,[Chain])]
-        (.+.) x y = foldl1 (^+^) (map (map (mapPair id  (map path))) [x,y])
+        (.+.) :: (Num a, Ord a, Show a, Path b) => [(a,b)] -> [(a,b)] -> [(a,[Chain])]
+        (.+.) xs ys = [ (fst x, [path . snd $ x]) | x<-xs ] ^+^ [ (fst y, [path . snd $ y]) | y<-ys ]
 
+        -- (.-.) :: (Num a, Ord a, Show a, Path b) => [(a,b)] -> [(a,b)] -> [(a,[Chain])]
+        -- (.-.) xs ys = (.+.) xs negateV( [ (fst y, path . snd $ y) | y<-ys] )
+
+        (-.) :: (Num a, Ord a, AdditiveGroup b) => [(a,b)] -> [(a,b)]
+        (-.) ps = [ (-fst p, snd p) | p<-ps ]
+
+        (.*) :: (Num a, Ord a, AdditiveGroup b) => a -> [(a,b)] -> [(a,b)]
+        n.*ps = [ (n * fst p, snd p) | p<-ps ]
 
         -- Gets the maximum size of a path in a quiver
         maxPathLength :: Quiver -> Int
@@ -109,6 +134,7 @@ module Quiver (
             pathLength  :: a -> Int
 
 
+
         -- Redefining the show for each type
         -- Can be easily rewritten to show different things
         instance Show Vertex where
@@ -125,11 +151,22 @@ module Quiver (
             -- uncomment this to allow verbose shows - i.e. showing 1 -a-> 2 -b-> 3 instead of just ab
             -- show (Chain "" [] s t) = "Empty path"
             -- show (Chain n as s t) = n ++ ": " ++ pathJoin as
-            show (Chain n as s t) = n
+            show = pathName
 
         -- Sadly we cannot draw the quivers as they will, more often than not, be non-planar
         instance Show Quiver where
             show (Quiver s v a) = "Quiver " ++ s ++ ": {Vertices: " ++ (strJoin ", " (map show v)) ++ ". Arrows: " ++ (strJoin ", " (map show a)) ++ "}"
+        
+
+
+        -- instance Show (Tensor Chain Chain) where
+        --     show = show . toTuple
+
+        instance (Show a) => Show (Tensor a a) where
+            show = show . toTuple
+
+        instance (Num a, Ord a, Show a, AdditiveGroup b, Show b) =>  Show (Mod a b) where
+            show (Mod n x) = show (n,x)
 
         -- Redefining equality for our types
         instance Eq Vertex where
@@ -143,6 +180,9 @@ module Quiver (
 
         instance Eq Quiver where
             (Quiver n vs as) == (Quiver m ws bs) = n == m && vs == ws && as == bs
+        
+        -- instance Eq Tensor where
+        --     x == y = and [leftT x == leftT y, rightT x == rightT y]
 
         instance Ord Chain where
             (<) c d | length (pathArrows c) == length (pathArrows d) = (<) (pathName c) (pathName d)
@@ -174,6 +214,24 @@ module Quiver (
                         if min (length (pathArrows c)) (length (pathArrows d)) == length (pathArrows c)
                             then c
                             else d
+
+        instance (Eq a, Eq b) =>  Eq (Tensor a b) where
+            (==) x y = (toTuple x) == (toTuple y)
+
+        instance (Eq a, Eq b) => Eq (Mod a b) where
+            (==) (Mod n x) (Mod m y) = (n,x) == (m,y)
+
+        instance (Ord a, Ord b) =>  Ord (Tensor a b) where
+            (<)     x y = (toTuple x)   <   (toTuple y)
+            (<=)    x y = (toTuple x)   <=  (toTuple y)
+            (>)     x y = (toTuple x)   >   (toTuple y)
+            (>=)    x y = (toTuple x)   >=  (toTuple y)
+
+        instance (Ord a, Ord b) =>  Ord (Mod a b) where
+            (<)     (Mod n x) (Mod m y) = (n,x)   <   (m,y)
+            (<=)    (Mod n x) (Mod m y) = (n,x)   <=  (m,y)
+            (>)     (Mod n x) (Mod m y) = (n,x)   >   (m,y)
+            (>=)    (Mod n x) (Mod m y) = (n,x)   >=  (m,y)
                             
         -- Defining how to compose each path type
         instance Path Chain where
@@ -194,16 +252,27 @@ module Quiver (
             path = arrowPath
             pathLength = const 1
 
-        instance AdditiveGroup [Chain] where
-            zeroV           = []
-            (^+^)   xs  ys  = showSum . concatMap pi2 $ showSum' [(1,xs),(1,ys)]
-            negateV x               | isNegativeV x = [Chain ((tail . pathName) a) (pathArrows a) (source a) (target a) | a<-x]
-                                    | otherwise     = [Chain ("-" ++ pathName a) (pathArrows a) (source a) (target a) | a<-x]
+        -- instance AdditiveGroup [Chain] where
+        --     zeroV           = [emptyPath]
+        --     (^+^)   xs  ys  = sort(xs ++ ys)
+        --     negateV xs      = map invertChain xs
 
-        instance (Num a, Ord a) => AdditiveGroup [(a,[Chain])] where
-            zeroV           = [(0,[])]
-            (^+^)   xs  ys  = showSum'(xs ++ ys)
-            negateV xs      = [(-pi1 x, negateV [a | a<- pi2 x]) | x<-xs]
+        instance (Path a) => AdditiveGroup [a] where
+            zeroV = []
+            (^+^)   xs  ys  = sort(xs ++ ys)
+
+        instance (Num a, Show a, Ord a, AdditiveGroup b, Ord b) =>AdditiveGroup [(a,b)] where
+            zeroV = [(0,zeroV)]
+            (^+^) xs ys = showSum(xs ++ ys)
+            negateV xs = [ (- fst x, snd x ) | x<-xs ]
+
+        instance (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => AdditiveGroup [Tensor a b] where
+            zeroV           = [Tensor [zeroV] [zeroV] ]
+            (^+^)   xs  ys  = toTensor . showSumT  $ (concatMap toTuple xs) ++ (concatMap toTuple ys)
+            negateV xs      = [ Tensor (map negateV (leftT x)) (rightT x) | x<-xs]
+
+        (⊗) :: (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => a -> b -> Tensor a b
+        x⊗y = Tensor [x] [y]
 
 
         isComposable :: Chain->Chain->Bool
@@ -219,11 +288,17 @@ module Quiver (
         x<+>y   | isComposable x y = doComp x y
                 | otherwise = emptyPath
 
-        (<**>) :: (Num a, Show a, Eq a) => a -> [Chain] -> [Chain]
-        n<**>xs  | n == 0 = []
-                | n == 1 = xs
-                | n == -1 = negateV xs
-                | otherwise = [Chain (show n ++ pathName x) (pathArrows x) (source x) (target x) | x<-xs]
+        (<**>) :: (Num a, Show a, Ord a) => a -> Chain -> Chain
+        n<**>x  | n == 0 = emptyPath
+                | n == 1 = x
+                | n == -1 = invertChain x
+                | otherwise = Chain (show n ++ pathName x) (pathArrows x) (source x) (target x)
+
+        -- (+⊗+) :: (Num a, Show a, Ord a) => (a,Tensor) -> (a,Tensor) -> [(a,Tensor)]
+        -- x+⊗+y  | x == y = [(fst x + fst y, snd x)]
+        --         | (leftT . snd $ x) == (leftT . snd $ y) = [(fst x,(leftT . snd $ x)⊗((rightT . snd $ x) ++ (rightT . snd $ y)))]
+        --         | (rightT . snd $ x) == (rightT . snd $ y) = [(fst x,((leftT . snd $ x) ++ (leftT . snd $ y))⊗(rightT . snd $ x))]
+        --         | otherwise = [x,y]
 
         -- Maps a pair of maps "f :: a->c" and "g :: b->d" to a pair "(a,b)" to obtain a pair "(c,d)"
         mapPair :: (a-> c)->(b-> d)->(a,b)->(c, d)
@@ -239,47 +314,58 @@ module Quiver (
         crossPairs xs [y] = [ [x]++[y] | x<-xs ]
         crossPairs (x:xs) ys = crossPairs [x] ys ++ crossPairs xs ys
 
-        pi1 :: (a,b) -> a
-        pi1 (x,y) = x
+        toTuple :: Tensor a b -> [(a,b)]
+        toTuple (Tensor xs ys) = [ (x,y) | x<-xs, y<-ys]
 
-        pi2 :: (a,b) -> b
-        pi2 (x,y) = y
+        toTensor :: [(a,b)] -> [Tensor a b]
+        toTensor as = [ Tensor [fst a] [snd a] | a<-as ]
 
-        isNegativeV :: [Chain] -> Bool
-        isNegativeV xs = [Chain ( stripChars "-" (pathName a)) (pathArrows a) (source a) (target a) | a<-xs] /= xs
+        isNegativeV :: Chain -> Bool
+        isNegativeV x = Chain ( stripChars "-" (pathName x)) (pathArrows x) (source x) (target x) /= x
 
-        gatherSums :: [Chain] -> [([Chain],Int)]
-        gatherSums = map (\x -> ([head x], length x)) . group . sort
+        -- isNegativeT :: ([Chain],[Chain]) -> Bool
+        -- isNegativeT x = and [ isNegativeV l | l<-leftT x] /= and [ isNegativeV r | r<-rightT x]
 
-        combineSums :: [([Chain],Int)] -> [[([Chain],Int)]]
-        combineSums xs = (groupBy ((==) `on` fst)) . sort $ ([ (negateV . pi1 $ x,-pi2 x) | x<-xs, isNegativeV . pi1 $ x] ++ [ x | x<-xs, not . isNegativeV . pi1 $ x])
+        invertChain :: Chain -> Chain
+        invertChain x   | isNegativeV x = Chain ((tail . pathName) x) (pathArrows x) (source x) (target x)
+                        | otherwise     = Chain ("-" ++ pathName x) (pathArrows x) (source x) (target x)
 
-        simplifySums :: [[([Chain],Int)]] -> [([Chain],Int)]
-        simplifySums as = [ (pi1 x, foldl1 (+) (map pi2 a)) | a<-as, x<-a]
+        -- invertTensor :: Tensor -> Tensor
+        -- invertTensor x  | and [isNegativeT x, and [isNegativeV r | r<-rightT x]]    = Tensor (leftT x) [invertChain r | r<-rightT x]
+        --                 | otherwise                                                 = Tensor [invertChain l | l<-leftT x] (rightT $ x)
 
-        filterSums :: [([Chain],Int)] -> [(Int,[Chain])]
-        filterSums xs = [ (pi2 x, pi1 x) | x<-[ head p | p<-group . sort $ xs ], pi2 x /= 0 ]
+        combineSums :: (Num a, Ord a, Ord b, AdditiveGroup b) => [(a,b)] -> [[(a,b)]]
+        combineSums xs = (groupBy ((==) `on` snd)) . sort $ xs
 
-        showSum :: [Chain] -> [Chain]
-        showSum = concatMap zModule . filterSums . simplifySums . combineSums . gatherSums
+        simplifySums :: (Num a, Ord a, Ord b, AdditiveGroup b) => [[(a,b)]] -> [(a,b)]
+        simplifySums as = [ (foldl1 (+) (map fst a), snd x) | a<-as, x<-a]
 
-        gatherSums' :: [Chain] -> [([Chain],Int)]
-        gatherSums' = map (\x -> ([head x], length x)) . group . sort
+        filterSums :: (Num a, Ord a, Ord b, AdditiveGroup b) => [(a,b)] -> [(a,b)]
+        filterSums xs = [ (fst x, snd x) | x<-[ head p | p<-group . sort $ xs ], fst x /= 0 ]
 
-        combineSums' :: (Num a, Ord a) => [(a,[Chain])] -> [[(a,[Chain])]]
-        combineSums' xs = (groupBy ((==) `on` snd)) . sort $ ([ (-pi1 x, negateV . pi2 $ x) | x<-xs, isNegativeV . pi2 $ x] ++ [ x | x<-xs, not . isNegativeV . pi2 $ x])
+        showSum :: (Num a, Ord a, Ord b, AdditiveGroup b) => [(a,b)] -> [(a,b)]
+        showSum = filterSums . simplifySums . combineSums
 
-        simplifySums' :: (Num a, Ord a) => [[(a,[Chain])]] -> [(a,[Chain])]
-        simplifySums' as = [ (foldl1 (+) (map pi1 a), pi2 x) | a<-as, x<-a]
+        gatherSumsT1 :: (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => [(a,b)] -> [[(a,b)]]
+        gatherSumsT1 xs = (groupBy ((==) `on` fst)) . sort $ xs
 
-        filterSums' :: (Num a, Ord a) => [(a,[Chain])] -> [(a,[Chain])]
-        filterSums' xs = [ (pi1 x, pi2 x) | x<-[ head p | p<-group . sort $ xs ], pi1 x /= 0 ]
+        combineSumsT1 :: (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => [[(a,b)]] -> [(a,b)]
+        combineSumsT1 xs = [ (fst . head $ l, foldl1 (^+^) (map snd l)) | l<-xs ]
 
-        showSum' :: (Num a, Ord a) => [(a,[Chain])] -> [(a,[Chain])]
-        showSum' = filterSums' . simplifySums' . combineSums'
+        gatherSumsT2 :: (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => [(a,b)] -> [[(a,b)]]
+        gatherSumsT2 xs = (groupBy ((==) `on` snd)) . sort $ xs
 
-        zModule :: (Int,[Chain]) -> [Chain]
-        zModule (n, xs) = n<**>xs
+        combineSumsT2 :: (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => [[(a,b)]] -> [(a,b)]
+        combineSumsT2 xs = [ (foldl1 (^+^) (map fst l), snd . head $ l) | l<-xs ]
+
+        filterSumsT :: (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => [(a,b)] -> [(a,b)]
+        filterSumsT xs = [ x | x<-xs, and [fst x /= zeroV, snd x /= zeroV]]
+
+        showSumT :: (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => [(a,b)] -> [(a,b)]
+        showSumT = filterSumsT . combineSumsT2 . gatherSumsT2 . combineSumsT1 . gatherSumsT1
+
+        zModule :: (Int,Chain) -> Chain
+        zModule (n, x) = n<**>x
 
         crossMap :: (a->b->c)->[a]->[b]->[c]
         crossMap f [] _ = []
@@ -402,10 +488,10 @@ module Quiver (
         isTail (x:xs)   ys = or [ [x] `isTail` ys, xs `isTail` ys ]
 
         pathHeads :: (Path a) => [a] -> [Chain]
-        pathHeads xs = map pi1 (concatMap (%) xs)
+        pathHeads = map fst . (snd =<<) . ((%) =<<)
 
         pathTails :: (Path a) => [a] -> [Chain]
-        pathTails xs = map pi2 (concatMap (%) xs)
+        pathTails = map snd . (snd =<<) . ((%) =<<)
 
         -- Used in Show Arrow
         strJoin sep arr = case arr of
