@@ -16,4 +16,4 @@ main = do
     let i = Arrow "i" v3 v2
     let j = Arrow "j" v2 v1
     let quiv = Quiver "Q" [v1,v2,v3,v4,v5,v6] [a,b,c,d,e,f,g,h,i,j]
-    print ([(1::Int,(path a))]⊗[(-3::Int,(path v1))])
+    print ( [ ( 1, [ path a ] ) ] .-. [ ( -3 , [ path v1 ] ) ] )

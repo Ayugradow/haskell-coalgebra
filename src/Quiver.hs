@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleInstances      #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MultiParamTypeClasses  #-}
-{-# LANGUAGE DatatypeContexts  #-}
 
 module Quiver (
     Quiver (..)
@@ -91,17 +90,20 @@ module Quiver (
         (%) :: (Path a, Num b, Eq b) => a -> [(b,[(Chain,Chain)])]
         (%) p = [ (1, [x]) | x<-(map filterDeltaEmptyPaths . splitPath) p]
 
-        (.+.) :: (Num a, Ord a, Show a, Path b) => [(a,b)] -> [(a,b)] -> [(a,[Chain])]
-        (.+.) xs ys = [ (fst x, [path . snd $ x]) | x<-xs ] ^+^ [ (fst y, [path . snd $ y]) | y<-ys ]
+        (.+.) :: (AdditiveGroup a) => a -> a -> a
+        (.+.) = (^+^)
 
-        -- (.-.) :: (Num a, Ord a, Show a, Path b) => [(a,b)] -> [(a,b)] -> [(a,[Chain])]
-        -- (.-.) xs ys = (.+.) xs negateV( [ (fst y, path . snd $ y) | y<-ys] )
+        (.-.) :: (AdditiveGroup a) => a -> a -> a
+        (.-.) xs ys = (.+.) xs $ negateV ys
 
-        (-.) :: (Num a, Ord a, AdditiveGroup b) => [(a,b)] -> [(a,b)]
-        (-.) ps = [ (-fst p, snd p) | p<-ps ]
+        (-.) :: (AdditiveGroup a) => a -> a
+        (-.) = negateV
 
         (.*) :: (Num a, Ord a, AdditiveGroup b) => a -> [(a,b)] -> [(a,b)]
-        n.*ps = [ (n * fst p, snd p) | p<-ps ]
+        n.*ps = [ (n * fst p, snd p) | p<-ps ]        
+
+        (⊗) :: (AdditiveGroup a, AdditiveGroup b) => a -> b -> Tensor a b
+        x⊗y = Tensor [x] [y]
 
         -- Gets the maximum size of a path in a quiver
         maxPathLength :: Quiver -> Int
@@ -127,7 +129,7 @@ module Quiver (
     -- Begin Auxiliary
 
         -- "Path" class of things that are path-like
-        class Path a where
+        class (Ord a, Show a, Eq a) => Path a where
             source      :: a -> Vertex
             target      :: a -> Vertex
             path        :: a -> Chain
@@ -180,9 +182,12 @@ module Quiver (
 
         instance Eq Quiver where
             (Quiver n vs as) == (Quiver m ws bs) = n == m && vs == ws && as == bs
-        
-        -- instance Eq Tensor where
-        --     x == y = and [leftT x == leftT y, rightT x == rightT y]
+
+        instance Ord Vertex where
+            compare x y  = compare (vertexName x) (vertexName y)
+
+        instance Ord Arrow where
+            compare x y  = compare (arrowName x) (arrowName y)
 
         instance Ord Chain where
             (<) c d | length (pathArrows c) == length (pathArrows d) = (<) (pathName c) (pathName d)
@@ -222,16 +227,10 @@ module Quiver (
             (==) (Mod n x) (Mod m y) = (n,x) == (m,y)
 
         instance (Ord a, Ord b) =>  Ord (Tensor a b) where
-            (<)     x y = (toTuple x)   <   (toTuple y)
-            (<=)    x y = (toTuple x)   <=  (toTuple y)
-            (>)     x y = (toTuple x)   >   (toTuple y)
-            (>=)    x y = (toTuple x)   >=  (toTuple y)
+            compare x y = compare (toTuple x) (toTuple y)
 
         instance (Ord a, Ord b) =>  Ord (Mod a b) where
-            (<)     (Mod n x) (Mod m y) = (n,x)   <   (m,y)
-            (<=)    (Mod n x) (Mod m y) = (n,x)   <=  (m,y)
-            (>)     (Mod n x) (Mod m y) = (n,x)   >   (m,y)
-            (>=)    (Mod n x) (Mod m y) = (n,x)   >=  (m,y)
+            compare (Mod n x) (Mod m y) = compare (n,x) (m,y)
                             
         -- Defining how to compose each path type
         instance Path Chain where
@@ -252,16 +251,12 @@ module Quiver (
             path = arrowPath
             pathLength = const 1
 
-        -- instance AdditiveGroup [Chain] where
-        --     zeroV           = [emptyPath]
-        --     (^+^)   xs  ys  = sort(xs ++ ys)
-        --     negateV xs      = map invertChain xs
-
-        instance (Path a) => AdditiveGroup [a] where
-            zeroV = []
+        instance AdditiveGroup [Chain] where
+            zeroV           = [emptyPath]
             (^+^)   xs  ys  = sort(xs ++ ys)
+            negateV xs      = map invertChain xs
 
-        instance (Num a, Show a, Ord a, AdditiveGroup b, Ord b) =>AdditiveGroup [(a,b)] where
+        instance (Num a, Show a, Ord a, AdditiveGroup b, Ord b) => AdditiveGroup [(a,b)] where
             zeroV = [(0,zeroV)]
             (^+^) xs ys = showSum(xs ++ ys)
             negateV xs = [ (- fst x, snd x ) | x<-xs ]
@@ -270,9 +265,6 @@ module Quiver (
             zeroV           = [Tensor [zeroV] [zeroV] ]
             (^+^)   xs  ys  = toTensor . showSumT  $ (concatMap toTuple xs) ++ (concatMap toTuple ys)
             negateV xs      = [ Tensor (map negateV (leftT x)) (rightT x) | x<-xs]
-
-        (⊗) :: (Ord a, AdditiveGroup a, Ord b, AdditiveGroup b) => a -> b -> Tensor a b
-        x⊗y = Tensor [x] [y]
 
 
         isComposable :: Chain->Chain->Bool
