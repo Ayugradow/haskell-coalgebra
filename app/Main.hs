@@ -16,4 +16,7 @@ main = do
     let i = Arrow "i" v3 v2
     let j = Arrow "j" v2 v1
     let quiv = Quiver "Q" [v1,v2,v3,v4,v5,v6] [a,b,c,d,e,f,g,h,i,j]
-    print ( [ ( 1, [ path a ] ) ] .-. [ ( -3 , [ path v1 ] ) ] )
+    print (distributeM (([1,7,-6,2], [a,b,c,d,j])))
+    print (collapseM [(1,a),(1,b),(-9,a)])
+    print (collapseM (distributeM (([1,7,-6,2], [a,b,c,d,j]))))
+    print (concatMap distributeM . collapseM $ [(1,a),(1,b),(-9,a)])

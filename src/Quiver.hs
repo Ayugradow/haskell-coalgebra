@@ -9,6 +9,7 @@ module Quiver (
     , Chain(..)
     , Path(..)
     , Tensor(..)
+    , Mod(..)
     , (⊗)
     , (#)
     , (%)
@@ -37,10 +38,13 @@ module Quiver (
     , isTail
     , localQuiver
     , mapPair
+    , distributeM
+    , collapseM
     ) where
         import Data.List
         import Data.Function
         import Data.AdditiveGroup
+        import qualified Data.Map as M
 
     -- Begin Exported
 
@@ -99,8 +103,8 @@ module Quiver (
         (-.) :: (AdditiveGroup a) => a -> a
         (-.) = negateV
 
-        (.*) :: (Num a, Ord a, AdditiveGroup b) => a -> [(a,b)] -> [(a,b)]
-        n.*ps = [ (n * fst p, snd p) | p<-ps ]        
+        (.*) :: (Num a, Ord a, AdditiveGroup b) => a -> Mod a b -> Mod a b
+        n.*(Mod m v) = Mod (n*m) v  
 
         (⊗) :: (AdditiveGroup a, AdditiveGroup b) => a -> b -> Tensor a b
         x⊗y = Tensor [x] [y]
@@ -167,8 +171,8 @@ module Quiver (
         instance (Show a) => Show (Tensor a a) where
             show = show . toTuple
 
-        instance (Num a, Ord a, Show a, AdditiveGroup b, Show b) =>  Show (Mod a b) where
-            show (Mod n x) = show (n,x)
+        instance (Num a, Ord a, Show a, Show b) =>  Show (Mod a b) where
+            show (Mod n x) = concat [show n, show x]
 
         -- Redefining equality for our types
         instance Eq Vertex where
@@ -358,6 +362,29 @@ module Quiver (
 
         zModule :: (Int,Chain) -> Chain
         zModule (n, x) = n<**>x
+
+        distributeM ::  ([a],[b]) -> [ (a,b) ]
+        distributeM (as,bs) = [ (a,b) | a<-as, b<-bs ]
+
+        collapseM :: (Ord a, Ord b) => [(a, b)] -> [([a], [b])]
+        collapseM ms = map (mapPair sort sort) (M.toList (M.fromListWith (++) [ (y,x) | (x,y)<-(M.toList (M.fromListWith (++) [([v], [k]) | (k,v) <- ms]))]))
+
+        toMod (x,y) = Mod x y
+
+        groupBy2 :: (a -> a -> Bool) -> [a] -> [[a]]
+        groupBy2 = go [] where
+        go acc comp [] = acc
+        go acc comp (h:t) =
+            let (hs, nohs) = partition (comp h) t
+            in go ((h:hs):acc) comp nohs
+
+        groupOn :: (Ord b) => (a -> b) -> [a] -> [[a]]
+        groupOn f =
+            let unpack = fmap snd . M.toList
+                fld m a = case M.lookup (f a) m of
+                    Nothing -> M.insert (f a) [a] m
+                    Just as -> M.insert (f a) (a:as) m
+            in unpack . foldl fld M.empty
 
         crossMap :: (a->b->c)->[a]->[b]->[c]
         crossMap f [] _ = []
